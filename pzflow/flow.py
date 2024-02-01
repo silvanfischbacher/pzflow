@@ -872,6 +872,7 @@ class Flow:
         batch_size: int = 1024,
         optimizer: Callable = None,
         loss_fn: Callable = None,
+        loss_fn_batched: Callable = None,
         convolve_errs: bool = False,
         patience: int = None,
         best_params: bool = True,
@@ -899,6 +900,10 @@ class Flow:
         loss_fn : Callable; optional
             A function to calculate the loss: `loss = loss_fn(params, x)`.
             If not provided, will be `-mean(log_prob)`.
+        loss_fn_batched : Callable; optional
+            A function to calculate the loss for a batch of data:
+            `loss = loss_fn(params, x)`. If not provided, will be
+            `-mean(log_prob)`.
         convolve_errs : bool; default=False
             Whether to draw new data from the error distributions during
             each epoch of training. Method will look for error columns in
@@ -952,6 +957,16 @@ class Flow:
             @jit
             def loss_fn(params, x, c):
                 return -jnp.mean(self._log_prob(params, x, c))
+        
+        def loss_fn_batched(params, x, c):
+            num_batches = x.shape[0] // batch_size
+
+            total_loss = 0
+            for i in range(num_batches):
+                x_batch = x[i * batch_size : (i + 1) * batch_size]
+                c_batch = c[i * batch_size : (i + 1) * batch_size]
+                total_loss += loss_fn(params, x_batch, c_batch)
+            return total_loss / num_batches        
 
         # initialize the optimizer
         optimizer = (
@@ -1009,12 +1024,12 @@ class Flow:
         # save the initial loss
         X = jnp.array(inputs[columns].to_numpy())
         C = self._get_conditions(inputs)
-        losses = [loss_fn(model_params, X, C).item()]
+        losses = [loss_fn_batched(model_params, X, C).item()]
 
         if val_set is not None:
             Xval = jnp.array(val_set[columns].to_numpy())
             Cval = self._get_conditions(val_set)
-            val_losses = [loss_fn(model_params, Xval, Cval).item()]
+            val_losses = [loss_fn_batched(model_params, Xval, Cval).item()]
 
         if verbose:
             if val_set is None:
@@ -1060,7 +1075,7 @@ class Flow:
 
             # save end-of-epoch training loss
             losses.append(
-                loss_fn(
+                loss_fn_batched(
                     model_params,
                     jnp.array(X[columns].to_numpy()),
                     self._get_conditions(X),
