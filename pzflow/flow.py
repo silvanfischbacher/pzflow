@@ -1,4 +1,5 @@
 """Define the Flow object that defines the normalizing flow."""
+
 from typing import Any, Callable, Sequence, Tuple
 
 import dill as pickle
@@ -7,6 +8,7 @@ import numpy as np
 import optax
 import pandas as pd
 from jax import grad, jit, random
+from jax.scipy.integrate import trapezoid
 from tqdm import tqdm
 
 from pzflow import distributions
@@ -402,7 +404,7 @@ class Flow:
         u, log_det = self._forward(params[1], inputs, conditions=conditions)
         log_prob = self.latent.log_prob(params[0], u) + log_det
         # set NaN's to negative infinity (i.e. zero probability)
-        log_prob = jnp.nan_to_num(log_prob, nan=jnp.NINF)
+        log_prob = jnp.nan_to_num(log_prob, nan=-jnp.inf)
         return log_prob
 
     def log_prob(
@@ -730,7 +732,7 @@ class Flow:
 
         if normalize:
             # normalize so they integrate to one
-            pdfs = pdfs / jnp.trapz(y=pdfs, x=grid).reshape(-1, 1)
+            pdfs = pdfs / trapezoid(y=pdfs, x=grid).reshape(-1, 1)
         if nan_to_zero:
             # set NaN's equal to zero probability
             pdfs = jnp.nan_to_num(pdfs, nan=0.0)
